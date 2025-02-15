@@ -1,3 +1,5 @@
 .history/
 .data
 data
+cache
+.cache
