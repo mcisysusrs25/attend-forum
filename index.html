@@ -23,6 +23,9 @@
     <!-- Main Content (Hidden initially) -->
     <main id="main-content" class="hidden">
         <div class="container mx-auto px-4 py-8 max-w-xl">
+            <!-- Debug Info (Hidden in production) -->
+            <div id="debug-info" class="mb-4 p-4 bg-gray-800 rounded-lg text-xs"></div>
+
             <!-- Status Bar -->
             <div class="mb-6">
                 <div id="location-status" class="bg-gray-800 rounded-lg p-4 flex items-center justify-between">
@@ -57,26 +60,49 @@
     </main>
 
 <script>
+// Configuration
 const ENCRYPTION_KEY = 'your-secret-key-here';
 const GOOGLE_FORM_URL = 'https://forms.google.com/your-form-url';
 const TARGET_LOCATION = {
     lat: 41.103611,
     lng: -80.649083
 };
-const MAX_DISTANCE = 500; // 20 meters radius
+const MAX_DISTANCE = 400; // 20 meters radius
+const DEBUG_MODE = true; // Set to false in production
 
+// Global variables
 let currentPosition = null;
 let qrScanner = null;
 let isScanning = true;
 
+// Debug logging
+function debugLog(message, data = null) {
+    if (DEBUG_MODE) {
+        const debugInfo = document.getElementById('debug-info');
+        const timestamp = new Date().toLocaleTimeString();
+        const logMessage = data ? 
+            `${timestamp}: ${message}: ${JSON.stringify(data)}` :
+            `${timestamp}: ${message}`;
+        debugInfo.innerHTML += `<div>${logMessage}</div>`;
+        console.log(logMessage, data);
+    }
+}
+
 // Session handling
 function saveToSession(data) {
-    const sessionData = {
-        timestamp: new Date().toISOString(),
-        location: currentPosition,
-        decodedData: data
-    };
-    sessionStorage.setItem('qrScanData', JSON.stringify(sessionData));
+    try {
+        const sessionData = {
+            timestamp: new Date().toISOString(),
+            location: currentPosition,
+            decodedData: data
+        };
+        sessionStorage.setItem('qrScanData', JSON.stringify(sessionData));
+        debugLog('Session data saved', sessionData);
+        return true;
+    } catch (error) {
+        debugLog('Error saving to session', error);
+        return false;
+    }
 }
 
 // Location handling
@@ -92,6 +118,8 @@ function updateLocationStatus(position) {
         TARGET_LOCATION.lat,
         TARGET_LOCATION.lng
     );
+
+    debugLog('Location updated', { currentPosition, distance });
 
     const statusIndicator = document.getElementById('status-indicator');
     const statusText = document.getElementById('status-text');
@@ -125,10 +153,23 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 
 function decryptData(encryptedData) {
     try {
-        const bytes = CryptoJS.AES.decrypt(encryptedData, ENCRYPTION_KEY);
-        return bytes.toString(CryptoJS.enc.Utf8);
+        debugLog('Attempting to decrypt', { encryptedData });
+        // Try parsing as base64 first
+        const parsedData = encryptedData.replace(/-/g, '+').replace(/_/g, '/');
+        const bytes = CryptoJS.AES.decrypt(parsedData, ENCRYPTION_KEY);
+        const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+        
+        if (!decrypted) {
+            throw new Error('Decryption resulted in empty string');
+        }
+        
+        debugLog('Decryption successful', { decrypted });
+        return decrypted;
     } catch (error) {
-        return null;
+        debugLog('Decryption failed', error);
+        // Try treating the QR data as plain text
+        debugLog('Attempting to use raw data', { encryptedData });
+        return encryptedData;
     }
 }
 
@@ -140,6 +181,20 @@ function showResult(message, type) {
     const bgColor = type === 'success' ? 'bg-green-900' : 'bg-red-900';
     result.className = `rounded-lg p-4 text-center ${bgColor}`;
     result.textContent = message;
+    debugLog('Showing result', { message, type });
+}
+
+function redirectToForm(data) {
+    try {
+        const formUrl = new URL(GOOGLE_FORM_URL);
+        // Add QR data as URL parameter
+        formUrl.searchParams.append('qr_data', encodeURIComponent(data));
+        debugLog('Redirecting to form', { url: formUrl.toString() });
+        window.location.href = formUrl.toString();
+    } catch (error) {
+        debugLog('Redirect failed', error);
+        showResult('Error redirecting to form. Please try again.', 'error');
+    }
 }
 
 function requestLocationPermission() {
@@ -150,32 +205,40 @@ function requestLocationPermission() {
                 document.getElementById('main-content').classList.remove('hidden');
                 initializeScanner();
                 
-                // Start watching position
                 navigator.geolocation.watchPosition(
                     updateLocationStatus,
                     (error) => {
+                        debugLog('Location tracking error', error);
                         showResult('Error tracking location. Please refresh and try again.', 'error');
                     },
                     { enableHighAccuracy: true }
                 );
             },
             (error) => {
+                debugLog('Location permission denied', error);
                 alert('Location access is required for this app to work. Please enable location services and refresh the page.');
             }
         );
     } else {
+        debugLog('Geolocation not supported');
         alert('Geolocation is not supported by your browser.');
     }
 }
 
 function onScanSuccess(decodedText) {
-    if (!isScanning || !currentPosition) return;
-    isScanning = false;
+    debugLog('QR code scanned', { decodedText });
     
+    if (!isScanning || !currentPosition) {
+        debugLog('Scan ignored - not in scanning state or no position');
+        return;
+    }
+    
+    isScanning = false;
     document.getElementById('loading').classList.remove('hidden');
     
     const decryptedData = decryptData(decodedText);
     if (!decryptedData) {
+        debugLog('Invalid QR code data');
         showResult('Invalid QR code format', 'error');
         isScanning = true;
         return;
@@ -188,42 +251,64 @@ function onScanSuccess(decodedText) {
         TARGET_LOCATION.lng
     );
 
+    debugLog('Processing scan result', { distance, decryptedData });
+
     qrScanner.stop().then(() => {
         setTimeout(() => {
             document.getElementById('loading').classList.add('hidden');
             
             if (distance <= MAX_DISTANCE) {
-                saveToSession(decryptedData);
-                showResult('Success! Redirecting...', 'success');
-                setTimeout(() => {
-                    window.location.href = GOOGLE_FORM_URL;
-                }, 1500);
+                if (saveToSession(decryptedData)) {
+                    showResult('Success! Redirecting...', 'success');
+                    setTimeout(() => redirectToForm(decryptedData), 1500);
+                } else {
+                    showResult('Error saving data. Please try again.', 'error');
+                    isScanning = true;
+                    initializeScanner();
+                }
             } else {
                 showResult(`You must be within ${MAX_DISTANCE}m of the target location`, 'error');
                 isScanning = true;
                 initializeScanner();
             }
         }, 1500);
+    }).catch(error => {
+        debugLog('Error stopping scanner', error);
+        showResult('Error processing QR code. Please try again.', 'error');
+        isScanning = true;
     });
 }
 
 function initializeScanner() {
-    if (qrScanner) {
-        qrScanner.clear();
-    }
-    
-    qrScanner = new Html5Qrcode("qr-reader");
-    qrScanner.start(
-        { facingMode: "environment" },
-        {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-        },
-        onScanSuccess,
-        (error) => {
-            // Suppress error logging for better UX
+    try {
+        if (qrScanner) {
+            qrScanner.clear();
         }
-    );
+        
+        qrScanner = new Html5Qrcode("qr-reader");
+        qrScanner.start(
+            { facingMode: "environment" },
+            {
+                fps: 10,
+                qrbox: { width: 250, height: 250 },
+            },
+            onScanSuccess,
+            (error) => {
+                // Suppress error logging for better UX
+                if (DEBUG_MODE) {
+                    console.log('QR Scanner Error:', error);
+                }
+            }
+        ).catch(error => {
+            debugLog('Scanner initialization error', error);
+            showResult('Error starting camera. Please refresh and try again.', 'error');
+        });
+        
+        debugLog('Scanner initialized');
+    } catch (error) {
+        debugLog('Scanner initialization failed', error);
+        showResult('Error initializing scanner. Please refresh and try again.', 'error');
+    }
 }
 </script>
 </body>
