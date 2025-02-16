@@ -48,3 +48,30 @@ Solution: Attendance data is publicly verifiable on the blockchain.
 Automating Attendance:
 Scenario: A professor doesn’t want to manually check attendance.
 Solution: QR scan → GPS verified → Data written to blockchain automatically.
+
+-- Thouthts. 
+- i need sleep. i am thinking too much
+do we realy need CA, canit it be simple. 
+
+public private key pairs. 
+public - in blockchain to veify
+private - with students.
+digital signatures - sared to students to keep unique idendity. - with URL
+decrpyt the QR with the digital signatures. 
+Scans the QR, Allow the Location Access, if within radius, fills the form. and submit. 
+
+Server, validates the request. if any issue return false. rejected. 
+if proof of location and digital signature and a requested session is valid. The blockchain stoire the data with the help of public key key.
+
+
+-- Professor creates a session, and add all the meta data. - no need to store the metadata in the blockchain. Just need to store the sessionID. tat's enough. as it is mapped with other attributes. 
+
+sessionID - uniquely identify the session for which the attendence is being captured. two session can not have an same id. 
+
+- let me thinnk
+
+
+
+
+
+
