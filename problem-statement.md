@@ -1,0 +1,1 @@
+I have a challenge now is to record student attendance. We use the QR code to let student sign in. However, some student will cheat by sending the QR codes to other students. Do you have any idea how to use Blockchain to design a attendance system?
